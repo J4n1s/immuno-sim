@@ -123,6 +123,7 @@ ax0.set_ylabel("Concentration")
 ax0.legend()
 st.pyplot(fig0)
 
+st.text("Efficacy is calculated as concentration times affinity (concentration * affinity).")
 # Plot efficacy
 fig1, ax1 = plt.subplots()
 for ab, eff in efficiencies.items():
@@ -132,6 +133,7 @@ ax1.set_ylabel("Efficacy (%)")
 ax1.legend()
 st.pyplot(fig1)
 
+st.text("Pathology progression is reduced based on antibody efficacy:\n 50% efficacy = 50% of set pathology progression, 10% efficacy = 90% of set pathology progression, etc.")
 # Plot pathology
 fig2, ax2 = plt.subplots()
 for ab, path in dfs.items():
