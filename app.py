@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 # Title
 st.title("Antibody Efficacy and Pathology Simulation")
-st.write("This app simulates the efficacy of two antibodies and the resulting disease pathology progression over time.")
+st.write("This app simulates the concentration and affinity of two antibodies, and the resulting disease pathology progression over time.")
 
 # Sidebar for simulation settings
 st.sidebar.header("Simulation Settings")
@@ -19,33 +19,35 @@ antibody_names = ["Antibody 1", "Antibody 2"]
 antibodies = {}
 for i, ab in enumerate(antibody_names):
     st.sidebar.subheader(ab)
-    model = st.sidebar.selectbox(f"Model type", ["Linear", "Exponential"], key=f"model_{i}", index=1)
-    eff_initial = 50.0 if i == 0 else 30.0
-    start_eff = st.sidebar.slider("Starting efficacy (%)", 0.0, 100.0, eff_initial, key=f"start_{i}")
-    if model == "Linear":
-        daily_decline = st.sidebar.slider("Daily decline (%)", 0.0, 10.0, 0.4, key=f"decline_{i}")
+    conc_model = st.sidebar.selectbox("Concentration model", ["Linear", "Exponential"], key=f"conc_model_{i}", index=1)
+    conc_initial = 50.0 if i == 0 else 30.0
+    start_conc = st.sidebar.slider("Starting concentration", 0.0, 100.0, conc_initial, key=f"start_conc_{i}")
+    if conc_model == "Linear":
+        daily_decline = st.sidebar.slider("Daily concentration decline", 0.0, 10.0, 0.4, key=f"conc_decline_{i}")
         half_life = None
     else:
-        half_life = st.sidebar.number_input("Half-life (days)", min_value=1, value=50, key=f"half_life_{i}")
+        half_life = st.sidebar.number_input("Concentration half-life (days)", min_value=1, value=50, key=f"half_life_{i}")
         daily_decline = None
+    affinity = st.sidebar.slider("Affinity", 0.0, 1.0, 0.3, step=0.01, key=f"affinity_{i}")
     booster = st.sidebar.checkbox("Apply booster shot", key=f"booster_{i}")
     if booster:
         booster_day = st.sidebar.number_input("Booster day (since start)", min_value=0, max_value=days, value=84, step=1, key=f"booster_day_{i}")
-        booster_mode = st.sidebar.selectbox("Booster mode", ["Set to", "Add"], key=f"booster_mode_{i}")
-        booster_value = st.sidebar.slider("Booster value (%)", 0.0, 100.0, start_eff, key=f"booster_value_{i}")
+        booster_conc = st.sidebar.slider("Booster concentration", 0.0, 100.0, start_conc, key=f"booster_conc_{i}")
+        booster_affinity = st.sidebar.slider("Booster affinity", 0.0, 1.0, 0.8, step=0.01, key=f"booster_affinity_{i}")
     else:
         booster_day = None
-        booster_mode = None
-        booster_value = None
+        booster_conc = None
+        booster_affinity = None
     antibodies[ab] = {
-        "model": model,
-        "start_eff": start_eff / 100.0,
+        "conc_model": conc_model,
+        "start_conc": start_conc / 100.0,
         "daily_decline": (daily_decline / 100.0) if daily_decline is not None else None,
         "half_life": half_life,
+        "affinity": affinity,
         "booster": booster,
         "booster_day": booster_day,
-        "booster_mode": booster_mode,
-        "booster_value": (booster_value / 100.0) if booster_value is not None else None
+        "booster_conc": (booster_conc / 100.0) if booster_conc is not None else None,
+        "booster_affinity": booster_affinity
     }
 
 # Sidebar for pathology settings
@@ -62,34 +64,40 @@ else:
 # Simulation arrays
 days_array = np.arange(days + 1)
 
-# Function to simulate antibody efficacy
-def simulate_efficacy(cfg):
-    eff = np.zeros_like(days_array, dtype=float)
-    current = cfg["start_eff"]
-    if cfg["model"] == "Exponential":
+# Function to simulate concentration and affinity
+def simulate_conc_aff(cfg):
+    conc = np.zeros_like(days_array, dtype=float)
+    aff = np.zeros_like(days_array, dtype=float)
+    current_conc = cfg["start_conc"]
+    current_aff = cfg["affinity"]
+    if cfg["conc_model"] == "Exponential":
         decay_factor = 0.5 ** (1.0 / cfg["half_life"])
     for t in days_array:
         if t == 0:
-            eff[t] = current
+            conc[t] = current_conc
+            aff[t] = current_aff
         else:
-            # booster at beginning of day
             if cfg["booster"] and t == cfg["booster_day"]:
-                if cfg["booster_mode"] == "Set to":
-                    current = cfg["booster_value"]
-                else:
-                    current = min(current + cfg["booster_value"], 1.0)
-                eff[t] = current
+                current_conc = cfg["booster_conc"]
+                current_aff = cfg["booster_affinity"]
+                conc[t] = current_conc
+                aff[t] = current_aff
                 continue
-            # decay
-            if cfg["model"] == "Linear":
-                current = max(current - cfg["daily_decline"], 0.0)
+            if cfg["conc_model"] == "Linear":
+                current_conc = max(current_conc - cfg["daily_decline"], 0.0)
             else:
-                current = current * decay_factor
-            eff[t] = current
-    return eff
+                current_conc = current_conc * decay_factor
+            conc[t] = current_conc
+            aff[t] = current_aff
+    return conc, aff
 
-# Run efficacy simulations
-efficiencies = {ab: simulate_efficacy(cfg) for ab, cfg in antibodies.items()}
+# Run simulations
+concentrations = {}
+efficiencies = {}
+for ab, cfg in antibodies.items():
+    conc, aff = simulate_conc_aff(cfg)
+    concentrations[ab] = conc
+    efficiencies[ab] = conc * aff
 
 # Simulate pathology based on efficacy
 dfs = {}
@@ -105,6 +113,15 @@ for ab, eff in efficiencies.items():
             rate = path_rate / 100.0
             path[t] = path[t - 1] * (1 + rate * (1 - e))
     dfs[ab] = path
+
+# Plot concentration
+fig0, ax0 = plt.subplots()
+for ab, conc in concentrations.items():
+    ax0.plot(days_array, conc * 100, label=ab)
+ax0.set_xlabel("Day")
+ax0.set_ylabel("Concentration")
+ax0.legend()
+st.pyplot(fig0)
 
 # Plot efficacy
 fig1, ax1 = plt.subplots()
@@ -125,7 +142,7 @@ ax2.legend()
 st.pyplot(fig2)
 
 # Final-week delta table
-start_fw = days - 6  # last 7 days
+start_fw = days - 6
 names = list(dfs.keys())
 
 data = {
